@@ -306,6 +306,38 @@
   }
   .pcard-img-placeholder svg { width: 28px; height: 28px; stroke: var(--borda); fill: none; stroke-width: 1.4; }
 
+  /* arrastar para reordenar */
+  .drag-handle {
+    position: absolute;
+    top: 6px; left: 6px;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: rgba(28,18,8,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    cursor: grab;
+    touch-action: none;
+  }
+  .drag-handle:active { cursor: grabbing; }
+  .drag-handle svg { width: 14px; height: 14px; }
+  .drag-handle-row {
+    display: flex;
+    align-items: center;
+    color: var(--texto-2);
+    cursor: grab;
+    touch-action: none;
+    flex-shrink: 0;
+  }
+  .drag-handle-row:active { cursor: grabbing; }
+  .drag-handle-row svg { width: 14px; height: 14px; }
+  .item-arrastando {
+    opacity: 0.85;
+    z-index: 40;
+    box-shadow: 0 8px 24px rgba(28,18,8,0.35);
+  }
+
   /* ⋮ nos cards de serviço */
   .pcard-dots-wrap { position: absolute; top: 6px; right: 6px; z-index: 5; }
   .pcard-dots-btn {
@@ -689,6 +721,7 @@
     padding: 16px 0;
   }
   .admin-row {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -752,6 +785,69 @@
   }
   .icon-btn svg { width: 13px; height: 13px; stroke: var(--texto-2); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .icon-btn.perigo svg { stroke: #c0392b; }
+
+  /* ── RECORTAR FOTO ── */
+  .cropper-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(28,18,8,0.92);
+    z-index: 300;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .cropper-overlay.aberto { display: flex; }
+  .cropper-box {
+    background: var(--branco);
+    width: 100%;
+    max-width: 360px;
+    border-radius: 16px;
+    padding: 20px;
+  }
+  .cropper-box h3 {
+    font-size: 16px;
+    font-weight: 400;
+    color: var(--texto);
+    margin-bottom: 14px;
+    text-align: center;
+  }
+  .cropper-viewport {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+    background: var(--creme-2);
+    touch-action: none;
+    cursor: grab;
+  }
+  .cropper-viewport:active { cursor: grabbing; }
+  .cropper-viewport img {
+    position: absolute;
+    top: 0; left: 0;
+    transform-origin: top left;
+    max-width: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
+  }
+  .cropper-guide {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border: 2px solid rgba(255,255,255,0.9);
+  }
+  .cropper-guide.circulo { border-radius: 50%; }
+  .cropper-zoom-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .cropper-zoom-row svg { width: 16px; height: 16px; stroke: var(--texto-2); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .cropper-zoom-row input[type="range"] { flex: 1; accent-color: var(--ouro); }
+  .cropper-acoes { display: flex; flex-direction: column; }
 </style>
 </head>
 <body>
@@ -836,6 +932,25 @@
   <div class="mini-modal" id="miniModalBox"></div>
 </div>
 
+<!-- RECORTAR FOTO -->
+<div class="cropper-overlay" id="cropperOverlay">
+  <div class="cropper-box">
+    <h3>Ajustar foto</h3>
+    <div class="cropper-viewport" id="cropperViewport">
+      <img id="cropperImg" alt="">
+      <div class="cropper-guide" id="cropperGuide"></div>
+    </div>
+    <div class="cropper-zoom-row">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="range" id="cropperZoom" min="100" max="300" value="100" step="1">
+    </div>
+    <div class="cropper-acoes">
+      <button class="btn-salvar" id="cropperConfirmar">Usar esta foto</button>
+      <button class="btn-fechar-admin" id="cropperCancelar">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 // ── FIREBASE ──
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -879,6 +994,123 @@ function removerFotoSilenciosamente(url) {
   try { deleteObject(storageRef(storage, url)).catch(() => {}); } catch (e) {}
 }
 
+// ── RECORTAR FOTO (antes de enviar) ──
+function abrirCropper(file, circular) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById("cropperOverlay");
+    const viewport = document.getElementById("cropperViewport");
+    const img = document.getElementById("cropperImg");
+    const guide = document.getElementById("cropperGuide");
+    const zoom = document.getElementById("cropperZoom");
+    const btnConfirmar = document.getElementById("cropperConfirmar");
+    const btnCancelar = document.getElementById("cropperCancelar");
+
+    guide.classList.toggle("circulo", !!circular);
+    zoom.value = 100;
+
+    let baseScale = 1, scale = 1, tx = 0, ty = 0, containerSize = 0;
+    let arrastando = false;
+    let inicioX = 0, inicioY = 0, inicioTx = 0, inicioTy = 0;
+
+    function aplicarTransform() {
+      img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    }
+
+    function limitar() {
+      const imgW = img.naturalWidth * scale;
+      const imgH = img.naturalHeight * scale;
+      const minTx = Math.min(0, containerSize - imgW);
+      const minTy = Math.min(0, containerSize - imgH);
+      tx = Math.max(minTx, Math.min(0, tx));
+      ty = Math.max(minTy, Math.min(0, ty));
+    }
+
+    function aoCarregarImagem() {
+      containerSize = viewport.clientWidth;
+      baseScale = Math.max(containerSize / img.naturalWidth, containerSize / img.naturalHeight);
+      scale = baseScale;
+      tx = (containerSize - img.naturalWidth * scale) / 2;
+      ty = (containerSize - img.naturalHeight * scale) / 2;
+      limitar();
+      aplicarTransform();
+    }
+    img.onload = aoCarregarImagem;
+
+    function aoZoom() {
+      const escalaAnterior = scale;
+      scale = baseScale * (zoom.value / 100);
+      const centro = containerSize / 2;
+      const pontoImgX = (centro - tx) / escalaAnterior;
+      const pontoImgY = (centro - ty) / escalaAnterior;
+      tx = centro - pontoImgX * scale;
+      ty = centro - pontoImgY * scale;
+      limitar();
+      aplicarTransform();
+    }
+    zoom.addEventListener("input", aoZoom);
+
+    function aoPointerDown(e) {
+      arrastando = true;
+      inicioX = e.clientX; inicioY = e.clientY;
+      inicioTx = tx; inicioTy = ty;
+      viewport.setPointerCapture(e.pointerId);
+    }
+    function aoPointerMove(e) {
+      if (!arrastando) return;
+      tx = inicioTx + (e.clientX - inicioX);
+      ty = inicioTy + (e.clientY - inicioY);
+      limitar();
+      aplicarTransform();
+    }
+    function aoPointerUp() { arrastando = false; }
+    viewport.addEventListener("pointerdown", aoPointerDown);
+    viewport.addEventListener("pointermove", aoPointerMove);
+    viewport.addEventListener("pointerup", aoPointerUp);
+    viewport.addEventListener("pointercancel", aoPointerUp);
+
+    const url = URL.createObjectURL(file);
+
+    function limparTudo() {
+      viewport.removeEventListener("pointerdown", aoPointerDown);
+      viewport.removeEventListener("pointermove", aoPointerMove);
+      viewport.removeEventListener("pointerup", aoPointerUp);
+      viewport.removeEventListener("pointercancel", aoPointerUp);
+      zoom.removeEventListener("input", aoZoom);
+      btnConfirmar.removeEventListener("click", aoConfirmar);
+      btnCancelar.removeEventListener("click", aoCancelar);
+      overlay.classList.remove("aberto");
+      img.onload = null;
+      img.src = "";
+      URL.revokeObjectURL(url);
+    }
+
+    function aoConfirmar() {
+      const tamanhoSaida = 800;
+      const canvas = document.createElement("canvas");
+      canvas.width = tamanhoSaida;
+      canvas.height = tamanhoSaida;
+      const ctx = canvas.getContext("2d");
+      const sx = -tx / scale;
+      const sy = -ty / scale;
+      const sSize = containerSize / scale;
+      ctx.drawImage(img, sx, sy, sSize, sSize, 0, 0, tamanhoSaida, tamanhoSaida);
+      canvas.toBlob(blob => {
+        limparTudo();
+        resolve(blob);
+      }, "image/jpeg", 0.9);
+    }
+    function aoCancelar() {
+      limparTudo();
+      resolve(null);
+    }
+    btnConfirmar.addEventListener("click", aoConfirmar);
+    btnCancelar.addEventListener("click", aoCancelar);
+
+    overlay.classList.add("aberto");
+    img.src = url;
+  });
+}
+
 // ── ÍCONES ──
 const ICONES = {
   whatsapp: '<path d="M3 21l1.65-3.8A9 9 0 1 1 7.5 19.4L3 21z"/>',
@@ -901,6 +1133,60 @@ const svgLapis = `<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.
 const svgLapisBranco = `<svg viewBox="0 0 24 24" stroke="#fff" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
 const svgLixeira = `<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
 const svgImgVazia = `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
+const svgArrastar = `<svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.3" fill="#fff"/><circle cx="15" cy="6" r="1.3" fill="#fff"/><circle cx="9" cy="12" r="1.3" fill="#fff"/><circle cx="15" cy="12" r="1.3" fill="#fff"/><circle cx="9" cy="18" r="1.3" fill="#fff"/><circle cx="15" cy="18" r="1.3" fill="#fff"/></svg>`;
+const svgArrastarEscuro = `<svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.3" fill="currentColor"/><circle cx="15" cy="6" r="1.3" fill="currentColor"/><circle cx="9" cy="12" r="1.3" fill="currentColor"/><circle cx="15" cy="12" r="1.3" fill="currentColor"/><circle cx="9" cy="18" r="1.3" fill="currentColor"/><circle cx="15" cy="18" r="1.3" fill="currentColor"/></svg>`;
+
+// ── ARRASTAR PARA REORDENAR (serviços e links) ──
+function tornarArrastavel(itemEl, handleEl, itemSelector, arr, aoSoltar) {
+  if (!handleEl) return;
+  let arrastando = false;
+  let startX = 0, startY = 0;
+
+  function aoPointerDown(e) {
+    e.stopPropagation();
+    arrastando = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    handleEl.setPointerCapture(e.pointerId);
+    itemEl.classList.add("item-arrastando");
+    document.addEventListener("pointermove", aoPointerMove);
+    document.addEventListener("pointerup", aoPointerUp);
+  }
+
+  function aoPointerMove(e) {
+    if (!arrastando) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    itemEl.style.transform = `translate(${dx}px, ${dy}px)`;
+  }
+
+  async function aoPointerUp(e) {
+    if (!arrastando) return;
+    arrastando = false;
+    document.removeEventListener("pointermove", aoPointerMove);
+    document.removeEventListener("pointerup", aoPointerUp);
+    itemEl.classList.remove("item-arrastando");
+    itemEl.style.transform = "";
+
+    itemEl.style.visibility = "hidden";
+    const elAlvo = document.elementFromPoint(e.clientX, e.clientY);
+    itemEl.style.visibility = "";
+    const itemAlvo = elAlvo ? elAlvo.closest(itemSelector) : null;
+
+    const idAtual = itemEl.dataset.id;
+    if (itemAlvo && itemAlvo.dataset.id && itemAlvo.dataset.id !== idAtual) {
+      const idxAtual = arr.findIndex(x => x.id === idAtual);
+      const idxAlvo = arr.findIndex(x => x.id === itemAlvo.dataset.id);
+      if (idxAtual !== -1 && idxAlvo !== -1) {
+        const [item] = arr.splice(idxAtual, 1);
+        arr.splice(idxAlvo, 0, item);
+        await aoSoltar();
+      }
+    }
+  }
+
+  handleEl.addEventListener("pointerdown", aoPointerDown);
+}
 
 // ── ESTADO ──
 let modoAdmin = false;
@@ -1149,6 +1435,7 @@ function renderGrid() {
   servicos.forEach(serv => {
     const card = document.createElement("div");
     card.className = "pcard";
+    card.dataset.id = serv.id;
     card.setAttribute("role", "button");
     card.setAttribute("tabindex", "0");
     card.setAttribute("aria-label", `Ver fotos de ${serv.nome}`);
@@ -1178,7 +1465,10 @@ function renderGrid() {
         </div>
       </div>` : '';
 
+    const handleHtml = modoAdmin ? `<div class="drag-handle" aria-label="Arrastar para reordenar" title="Arrastar para reordenar">${svgArrastar}</div>` : '';
+
     card.innerHTML = `
+      ${handleHtml}
       ${dotsHtml}
       ${imgHtml}
       <div class="pcard-body">
@@ -1225,6 +1515,12 @@ function renderGrid() {
           renderGrid();
           fotosParaRemover.forEach(removerFotoSilenciosamente);
         }
+      });
+
+      const handle = card.querySelector(".drag-handle");
+      tornarArrastavel(card, handle, ".pcard", servicos, async () => {
+        await salvarServicos();
+        renderGrid();
       });
     }
 
@@ -1283,14 +1579,21 @@ function abrirModalEditarDuracao(serv) {
 // ── NOVO SERVIÇO ──
 document.getElementById("btnNovoServico").addEventListener("click", abrirModalNovoServico);
 
+let novoServCapaBlob = null;
+
 function abrirModalNovoServico() {
+  novoServCapaBlob = null;
   const html = `
     <h3>Novo serviço</h3>
     <div class="field-group"><label>NOME DO SERVIÇO</label><input type="text" id="novoServNome" placeholder="Ex: Alongamento em fibra"></div>
     <div class="field-group"><label>VALOR (R$)</label><input type="text" id="novoServPreco" placeholder="Ex: 180"></div>
     <div class="field-group"><label>DURAÇÃO</label><input type="text" id="novoServDuracao" placeholder="Ex: 60 min"></div>
     <div class="field-group"><label>DESCRIÇÃO</label><textarea id="novoServDesc" placeholder="Descreva o serviço..."></textarea></div>
-    <div class="field-group"><label>FOTO DE CAPA</label><input type="file" id="novoServCapa" accept="image/*"></div>
+    <div class="field-group">
+      <label>FOTO DE CAPA</label>
+      <input type="file" id="novoServCapa" accept="image/*">
+      <div class="icone-preview" id="novoServCapaPreview" style="display:none;"></div>
+    </div>
     <div class="erro-msg" id="erroNovoServ">Preencha ao menos nome e valor.</div>
     <button class="btn-salvar" id="btnSalvarNovoServ">ADICIONAR SERVIÇO</button>
     <button class="btn-fechar-admin" id="btnCancelarNovoServ">Cancelar</button>
@@ -1298,6 +1601,18 @@ function abrirModalNovoServico() {
   abrirMiniModal(html);
   document.getElementById("btnCancelarNovoServ").addEventListener("click", fecharMiniModal);
   document.getElementById("btnSalvarNovoServ").addEventListener("click", salvarNovoServico);
+  document.getElementById("novoServCapa").addEventListener("change", async () => {
+    const input = document.getElementById("novoServCapa");
+    const file = input.files[0];
+    input.value = "";
+    if (!file) return;
+    const blob = await abrirCropper(file, false);
+    if (!blob) return;
+    novoServCapaBlob = blob;
+    const preview = document.getElementById("novoServCapaPreview");
+    preview.style.display = "block";
+    preview.innerHTML = `<img src="${URL.createObjectURL(blob)}" alt="">`;
+  });
 }
 
 async function salvarNovoServico() {
@@ -1305,7 +1620,6 @@ async function salvarNovoServico() {
   const preco = document.getElementById("novoServPreco").value.trim();
   const duracao = document.getElementById("novoServDuracao").value.trim();
   const desc = document.getElementById("novoServDesc").value.trim();
-  const file = document.getElementById("novoServCapa").files[0];
   const erro = document.getElementById("erroNovoServ");
   const btn = document.getElementById("btnSalvarNovoServ");
 
@@ -1317,11 +1631,11 @@ async function salvarNovoServico() {
 
   const novoId = uid();
   btn.disabled = true;
-  btn.textContent = file ? "ENVIANDO FOTO..." : "SALVANDO...";
+  btn.textContent = novoServCapaBlob ? "ENVIANDO FOTO..." : "SALVANDO...";
 
   try {
     let capaUrl = null;
-    if (file) capaUrl = await subirFoto(file, `servicos/${novoId}/${uid()}.jpg`);
+    if (novoServCapaBlob) capaUrl = await subirFoto(novoServCapaBlob, `servicos/${novoId}/${uid()}.jpg`);
     servicos.push({ id: novoId, nome, preco, duracao, desc, capa: capaUrl, fotos: capaUrl ? [capaUrl] : [] });
     await salvarServicos();
     renderGrid();
@@ -1402,10 +1716,13 @@ function renderModalGaleria() {
       input.addEventListener("change", async () => {
         const idx = Number(input.dataset.idx);
         const file = input.files[0];
+        input.value = "";
         if (!file) return;
+        const blob = await abrirCropper(file, false);
+        if (!blob) return;
         try {
           const antiga = serv.fotos[idx];
-          const nova = await subirFoto(file, `servicos/${serv.id}/${uid()}.jpg`);
+          const nova = await subirFoto(blob, `servicos/${serv.id}/${uid()}.jpg`);
           serv.fotos[idx] = nova;
           if (serv.capa === antiga) serv.capa = nova;
           await salvarServicos();
@@ -1441,12 +1758,15 @@ document.getElementById("modalAddFotos").addEventListener("change", async () => 
   if (!serv || !input.files.length) return;
 
   const files = Array.from(input.files);
+  input.value = "";
   const textoOriginal = label.textContent;
-  label.textContent = "Enviando...";
 
   try {
     for (const file of files) {
-      const url = await subirFoto(file, `servicos/${serv.id}/${uid()}.jpg`);
+      const blob = await abrirCropper(file, false);
+      if (!blob) continue;
+      label.textContent = "Enviando...";
+      const url = await subirFoto(blob, `servicos/${serv.id}/${uid()}.jpg`);
       serv.fotos = serv.fotos || [];
       serv.fotos.push(url);
       if (!serv.capa) serv.capa = url;
@@ -1459,7 +1779,6 @@ document.getElementById("modalAddFotos").addEventListener("change", async () => 
     alert("Erro ao enviar uma ou mais fotos. Tente novamente.");
   } finally {
     label.textContent = textoOriginal;
-    input.value = "";
   }
 });
 
@@ -1484,11 +1803,13 @@ document.getElementById("logoRing").addEventListener("click", () => {
 document.getElementById("inputFotoPerfil").addEventListener("change", async () => {
   const input = document.getElementById("inputFotoPerfil");
   const file = input.files[0];
-  if (!file) return;
   input.value = "";
+  if (!file) return;
+  const blob = await abrirCropper(file, true);
+  if (!blob) return;
   try {
     const antiga = perfilFotoUrl;
-    const nova = await subirFoto(file, `perfil/${uid()}.jpg`);
+    const nova = await subirFoto(blob, `perfil/${uid()}.jpg`);
     await salvarPerfilFotoUrl(nova);
     renderPerfil();
     aplicarModoAdmin();
@@ -1597,7 +1918,8 @@ document.getElementById("btnGerenciarLinks").addEventListener("click", e => {
 
 function renderConteudoLinks() {
   let linksHtml = links.map(l => `
-    <div class="admin-row">
+    <div class="admin-row" data-id="${l.id}">
+      <div class="drag-handle-row" aria-label="Arrastar para reordenar" title="Arrastar para reordenar">${svgArrastarEscuro}</div>
       <div class="admin-row-thumb admin-row-thumb-icon">${iconeHtml(l)}</div>
       <div class="admin-row-info">
         <p class="admin-row-title">${l.label}</p>
@@ -1625,6 +1947,14 @@ function renderConteudoLinks() {
   document.querySelectorAll(".editar-link-btn").forEach(btn => {
     btn.addEventListener("click", () => abrirModalFormLink(btn.dataset.id));
   });
+  document.querySelectorAll(".admin-row").forEach(row => {
+    const handle = row.querySelector(".drag-handle-row");
+    tornarArrastavel(row, handle, ".admin-row", links, async () => {
+      await salvarLinks();
+      renderDock();
+      renderConteudoLinks();
+    });
+  });
   document.querySelectorAll(".excluir-link-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
       const link = links.find(l => l.id === btn.dataset.id);
@@ -1640,8 +1970,11 @@ function renderConteudoLinks() {
   });
 }
 
+let linkIconeCropado = null;
+
 function abrirModalFormLink(id) {
   const link = id ? links.find(l => l.id === id) : null;
+  linkIconeCropado = null;
   const html = `
     <h3>${link ? "Editar link" : "Novo link"}</h3>
     <div class="field-group"><label>NOME DO LINK</label><input type="text" id="linkLabel" value="${link ? link.label.replace(/"/g, '&quot;') : ''}" placeholder="Ex: WhatsApp"></div>
@@ -1660,7 +1993,9 @@ function abrirModalFormLink(id) {
     <div class="field-group" id="linkIconeFotoGroup" style="display:none;">
       <label>FOTO DO ÍCONE</label>
       <input type="file" id="linkIconeFoto" accept="image/*">
-      ${link && link.icon === "custom" && link.iconFoto ? `<div class="icone-preview"><img src="${link.iconFoto}" alt=""></div>` : ''}
+      <div class="icone-preview" id="linkIconePreview" style="${link && link.icon === "custom" && link.iconFoto ? '' : 'display:none;'}">
+        ${link && link.icon === "custom" && link.iconFoto ? `<img src="${link.iconFoto}" alt="">` : ''}
+      </div>
     </div>
     <div class="erro-msg" id="erroLinkForm">Preencha nome e URL.</div>
     <button class="btn-salvar" id="btnSalvarLink">SALVAR LINK</button>
@@ -1674,13 +2009,24 @@ function abrirModalFormLink(id) {
   selectIcone.addEventListener("change", () => {
     grupoFoto.style.display = selectIcone.value === "custom" ? "block" : "none";
   });
+  document.getElementById("linkIconeFoto").addEventListener("change", async () => {
+    const input = document.getElementById("linkIconeFoto");
+    const file = input.files[0];
+    input.value = "";
+    if (!file) return;
+    const blob = await abrirCropper(file, false);
+    if (!blob) return;
+    linkIconeCropado = blob;
+    const preview = document.getElementById("linkIconePreview");
+    preview.style.display = "block";
+    preview.innerHTML = `<img src="${URL.createObjectURL(blob)}" alt="">`;
+  });
 
   document.getElementById("btnVoltarLinks").addEventListener("click", renderConteudoLinks);
   document.getElementById("btnSalvarLink").addEventListener("click", async () => {
     const label = document.getElementById("linkLabel").value.trim();
     const url = document.getElementById("linkUrl").value.trim();
     const icon = selectIcone.value;
-    const file = document.getElementById("linkIconeFoto").files[0];
     const erro = document.getElementById("erroLinkForm");
     const btnSalvar = document.getElementById("btnSalvarLink");
 
@@ -1689,19 +2035,19 @@ function abrirModalFormLink(id) {
       erro.style.display = "block";
       return;
     }
-    if (icon === "custom" && !file && !(link && link.iconFoto)) {
+    if (icon === "custom" && !linkIconeCropado && !(link && link.iconFoto)) {
       erro.textContent = "Escolha uma foto para o ícone.";
       erro.style.display = "block";
       return;
     }
     erro.style.display = "none";
     btnSalvar.disabled = true;
-    if (file) btnSalvar.textContent = "ENVIANDO...";
+    if (linkIconeCropado) btnSalvar.textContent = "ENVIANDO...";
 
     try {
       let iconFotoUrl = link ? link.iconFoto || null : null;
-      if (icon === "custom" && file) {
-        iconFotoUrl = await subirFoto(file, `links/${uid()}.jpg`);
+      if (icon === "custom" && linkIconeCropado) {
+        iconFotoUrl = await subirFoto(linkIconeCropado, `links/${uid()}.jpg`);
       }
       if (link) {
         link.label = label; link.url = url; link.icon = icon;
