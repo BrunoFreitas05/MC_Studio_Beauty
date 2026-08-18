@@ -107,7 +107,7 @@
   }
   .hero-edit-btn {
     position: absolute;
-    top: 14px; right: 14px;
+    top: 50px; right: 14px;
     width: 28px; height: 28px;
     border-radius: 50%;
     background: var(--creme);
@@ -270,14 +270,10 @@
     letter-spacing: 0.02em;
   }
   .pcard-duracao {
-    display: flex;
-    align-items: center;
-    gap: 2px;
     font-family: Arial, sans-serif;
     font-size: 9px;
     color: rgba(255,255,255,0.85);
   }
-  .pcard-duracao svg { width: 9px; height: 9px; stroke: rgba(255,255,255,0.85); fill: none; stroke-width: 2; }
   .pcard-body {
     padding: 9px 11px 10px;
   }
@@ -451,15 +447,11 @@
     color: var(--ouro);
   }
   .modal-duracao {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
     font-size: 11px;
     font-weight: 400;
     color: var(--texto-2);
     margin-left: 6px;
   }
-  .modal-duracao svg { width: 11px; height: 11px; stroke: var(--texto-2); fill: none; stroke-width: 2; }
   .modal-close {
     background: none;
     border: none;
@@ -557,22 +549,24 @@
   /* ── BOTÃO ADMIN FLUTUANTE ── */
   .admin-btn-float {
     position: fixed;
-    bottom: 24px;
-    right: 24px;
-    width: 48px;
-    height: 48px;
-    border-radius: 14px;
-    background: var(--texto);
+    top: 10px;
+    right: 10px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(44,33,24,0.06);
     border: none;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 50;
-    transition: background 0.15s;
+    opacity: 0.4;
+    transition: opacity 0.15s, background 0.15s;
   }
-  .admin-btn-float:hover, .admin-btn-float.ativo { background: var(--ouro); }
-  .admin-btn-float svg { width: 20px; height: 20px; stroke: #fff; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .admin-btn-float:hover, .admin-btn-float.ativo { background: var(--ouro); opacity: 1; }
+  .admin-btn-float svg { width: 13px; height: 13px; stroke: var(--texto); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .admin-btn-float:hover svg, .admin-btn-float.ativo svg { stroke: #fff; }
 
   /* ── MINI MODAL (senha, formulários, listas) ── */
   .mini-modal-overlay {
@@ -868,7 +862,6 @@ const svgDotsBranco = `<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.8" f
 const svgLapis = `<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
 const svgLixeira = `<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
 const svgImgVazia = `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
-const svgRelogio = `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>`;
 
 // ── ESTADO ──
 let modoAdmin = false;
@@ -1162,7 +1155,7 @@ function renderGrid() {
     const precoDuracaoHtml = `
       <div class="pcard-preco-duracao">
         <span class="pcard-price">R$ ${serv.preco}</span>
-        ${serv.duracao ? `<span class="pcard-duracao">${svgRelogio}${serv.duracao}</span>` : ''}
+        ${serv.duracao ? `<span class="pcard-duracao">| ${serv.duracao}</span>` : ''}
       </div>`;
 
     const imgHtml = serv.capa
@@ -1348,7 +1341,7 @@ function renderModalGaleria() {
   if (!serv) return;
 
   document.getElementById("modalTitulo").textContent = serv.nome;
-  document.getElementById("modalPreco").innerHTML = `R$ ${serv.preco}` + (serv.duracao ? ` <span class="modal-duracao">${svgRelogio}${serv.duracao}</span>` : '');
+  document.getElementById("modalPreco").innerHTML = `R$ ${serv.preco}` + (serv.duracao ? ` <span class="modal-duracao">| ${serv.duracao}</span>` : '');
   document.getElementById("modalDesc").textContent = serv.desc || "";
   document.getElementById("modalAdminBar").style.display = modoAdmin ? "block" : "none";
 
