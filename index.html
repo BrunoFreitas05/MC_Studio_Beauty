@@ -1137,10 +1137,20 @@ const svgArrastar = `<svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.3" fill
 const svgArrastarEscuro = `<svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.3" fill="currentColor"/><circle cx="15" cy="6" r="1.3" fill="currentColor"/><circle cx="9" cy="12" r="1.3" fill="currentColor"/><circle cx="15" cy="12" r="1.3" fill="currentColor"/><circle cx="9" cy="18" r="1.3" fill="currentColor"/><circle cx="15" cy="18" r="1.3" fill="currentColor"/></svg>`;
 
 // ── ARRASTAR PARA REORDENAR (serviços e links) ──
-function tornarArrastavel(itemEl, handleEl, itemSelector, arr, aoSoltar) {
+function tornarArrastavel(itemEl, handleEl, itemSelector, arr, aoSoltar, chaveDoItem) {
   if (!handleEl) return;
+  chaveDoItem = chaveDoItem || (x => x.id);
   let arrastando = false;
   let startX = 0, startY = 0;
+
+  function limparEstado() {
+    arrastando = false;
+    document.removeEventListener("pointermove", aoPointerMove);
+    document.removeEventListener("pointerup", aoPointerUp);
+    document.removeEventListener("pointercancel", aoPointerCancel);
+    itemEl.classList.remove("item-arrastando");
+    itemEl.style.transform = "";
+  }
 
   function aoPointerDown(e) {
     e.stopPropagation();
@@ -1151,6 +1161,7 @@ function tornarArrastavel(itemEl, handleEl, itemSelector, arr, aoSoltar) {
     itemEl.classList.add("item-arrastando");
     document.addEventListener("pointermove", aoPointerMove);
     document.addEventListener("pointerup", aoPointerUp);
+    document.addEventListener("pointercancel", aoPointerCancel);
   }
 
   function aoPointerMove(e) {
@@ -1162,21 +1173,17 @@ function tornarArrastavel(itemEl, handleEl, itemSelector, arr, aoSoltar) {
 
   async function aoPointerUp(e) {
     if (!arrastando) return;
-    arrastando = false;
-    document.removeEventListener("pointermove", aoPointerMove);
-    document.removeEventListener("pointerup", aoPointerUp);
-    itemEl.classList.remove("item-arrastando");
-    itemEl.style.transform = "";
+    const idAtual = itemEl.dataset.id;
+    limparEstado();
 
     itemEl.style.visibility = "hidden";
     const elAlvo = document.elementFromPoint(e.clientX, e.clientY);
     itemEl.style.visibility = "";
     const itemAlvo = elAlvo ? elAlvo.closest(itemSelector) : null;
 
-    const idAtual = itemEl.dataset.id;
     if (itemAlvo && itemAlvo.dataset.id && itemAlvo.dataset.id !== idAtual) {
-      const idxAtual = arr.findIndex(x => x.id === idAtual);
-      const idxAlvo = arr.findIndex(x => x.id === itemAlvo.dataset.id);
+      const idxAtual = arr.findIndex(x => chaveDoItem(x) === idAtual);
+      const idxAlvo = arr.findIndex(x => chaveDoItem(x) === itemAlvo.dataset.id);
       if (idxAtual !== -1 && idxAlvo !== -1) {
         const [item] = arr.splice(idxAtual, 1);
         arr.splice(idxAlvo, 0, item);
@@ -1185,12 +1192,17 @@ function tornarArrastavel(itemEl, handleEl, itemSelector, arr, aoSoltar) {
     }
   }
 
+  function aoPointerCancel() {
+    if (!arrastando) return;
+    limparEstado();
+  }
+
   handleEl.addEventListener("pointerdown", aoPointerDown);
+  handleEl.addEventListener("click", e => e.stopPropagation());
 }
 
 // ── ESTADO ──
 let modoAdmin = false;
-let usuarioAtual = null;
 let servicoGaleriaAberta = null;
 let docExisteNoServidor = true;
 let jaTentouSeed = false;
@@ -1347,7 +1359,6 @@ function aplicarModoAdmin() {
 }
 
 onAuthStateChanged(auth, user => {
-  usuarioAtual = user;
   modoAdmin = !!(user && user.email && user.emailVerified && EMAILS_PERMITIDOS.includes(user.email));
   aplicarModoAdmin();
   verificarSeed();
@@ -1461,6 +1472,7 @@ function renderGrid() {
         <div class="dots-menu">
           <button data-acao="renomear">Editar nome</button>
           <button data-acao="duracao">Editar duração</button>
+          <button data-acao="descricao">Editar descrição</button>
           <button data-acao="excluir" class="perigo">Excluir serviço</button>
         </div>
       </div>` : '';
@@ -1503,6 +1515,12 @@ function renderGrid() {
         e.stopPropagation();
         dotsMenu.classList.remove("aberto");
         abrirModalEditarDuracao(serv);
+      });
+
+      card.querySelector('[data-acao="descricao"]').addEventListener("click", e => {
+        e.stopPropagation();
+        dotsMenu.classList.remove("aberto");
+        abrirModalEditarDescricao(serv);
       });
 
       card.querySelector('[data-acao="excluir"]').addEventListener("click", async e => {
@@ -1572,6 +1590,24 @@ function abrirModalEditarDuracao(serv) {
     serv.duracao = document.getElementById("editDuracao").value.trim();
     await salvarServicos();
     renderGrid();
+    fecharMiniModal();
+  });
+}
+
+function abrirModalEditarDescricao(serv) {
+  const html = `
+    <h3>Editar descrição</h3>
+    <div class="field-group"><label>DESCRIÇÃO</label><textarea id="editDescricao" placeholder="Descreva o serviço..."></textarea></div>
+    <button class="btn-salvar" id="btnSalvarDescricao">SALVAR</button>
+    <button class="btn-fechar-admin" id="btnCancelarDescricao">Cancelar</button>
+  `;
+  abrirMiniModal(html);
+  document.getElementById("editDescricao").value = serv.desc || "";
+  document.getElementById("btnCancelarDescricao").addEventListener("click", fecharMiniModal);
+  document.getElementById("btnSalvarDescricao").addEventListener("click", async () => {
+    serv.desc = document.getElementById("editDescricao").value.trim();
+    await salvarServicos();
+    if (document.getElementById("modalGaleria").classList.contains("aberto")) renderModalGaleria();
     fecharMiniModal();
   });
 }
@@ -1681,9 +1717,11 @@ function renderModalGaleria() {
   fotos.forEach((foto, idx) => {
     const div = document.createElement("div");
     div.className = "modal-foto";
+    div.dataset.id = foto;
     div.innerHTML = `<img src="${foto}" alt="${serv.nome}" loading="lazy">`;
     if (modoAdmin) {
       div.innerHTML += `
+        <div class="drag-handle" aria-label="Arrastar para reordenar" title="Arrastar para reordenar">${svgArrastar}</div>
         <div class="modal-foto-admin">
           ${serv.capa === foto ? '<span class="capa-tag">CAPA</span>' : `<button class="foto-acao-btn" data-acao="capa" data-idx="${idx}">Definir capa</button>`}
           <div class="foto-admin-acoes">
@@ -1697,6 +1735,13 @@ function renderModalGaleria() {
   });
 
   if (modoAdmin) {
+    grid.querySelectorAll(".modal-foto").forEach(div => {
+      const handle = div.querySelector(".drag-handle");
+      tornarArrastavel(div, handle, ".modal-foto", serv.fotos, async () => {
+        await salvarServicos();
+        renderModalGaleria();
+      }, url => url);
+    });
     grid.querySelectorAll('[data-acao="capa"]').forEach(btn => {
       btn.addEventListener("click", async () => {
         const idx = Number(btn.dataset.idx);
