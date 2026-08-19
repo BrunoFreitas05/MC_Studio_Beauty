@@ -432,12 +432,12 @@
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: contain;
   }
-  .modal-overlay.aberto { display: flex; flex-direction: column; }
+  .modal-overlay.aberto { display: block; }
   .modal-box {
     background: var(--creme);
     max-width: 420px;
     width: 100%;
-    margin: auto;
+    margin: 0 auto;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -490,6 +490,7 @@
   .modal-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    align-content: start;
     gap: 8px;
     padding: 16px;
     flex: 1 0 auto;
