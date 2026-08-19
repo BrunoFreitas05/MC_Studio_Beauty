@@ -22,6 +22,8 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  html { overscroll-behavior: none; }
+
   body {
     font-family: 'Georgia', serif;
     background: var(--creme);
@@ -29,6 +31,7 @@
     min-height: 100vh;
     max-width: 420px;
     margin: 0 auto;
+    overscroll-behavior: none;
   }
 
   /* ── HERO ── */
@@ -427,6 +430,7 @@
     z-index: 100;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
   }
   .modal-overlay.aberto { display: flex; flex-direction: column; }
   .modal-box {
@@ -613,6 +617,7 @@
     max-width: 360px;
     max-height: 85vh;
     overflow-y: auto;
+    overscroll-behavior-y: contain;
     border-radius: 16px;
     padding: 22px 20px;
   }
@@ -1271,6 +1276,7 @@ function travarScroll() {
     document.body.style.left = "0";
     document.body.style.right = "0";
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
   }
   travasScrollAtivas++;
 }
@@ -1283,6 +1289,7 @@ function destravarScroll() {
     document.body.style.left = "";
     document.body.style.right = "";
     document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
     window.scrollTo(0, scrollYAntesDeTravar);
   }
 }
