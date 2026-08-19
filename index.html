@@ -387,27 +387,6 @@
   .dots-menu button:hover { background: var(--creme); }
   .dots-menu button.perigo { color: #c0392b; }
 
-  .edit-nome-input {
-    width: 100%;
-    border: 1px solid var(--ouro);
-    border-radius: 6px;
-    padding: 6px 8px;
-    font-family: Arial, sans-serif;
-    font-size: 12px;
-    outline: none;
-    background: var(--branco);
-  }
-  .edit-nome-acoes { display: flex; gap: 14px; margin-top: 6px; }
-  .link-btn {
-    background: none;
-    border: none;
-    font-family: Arial, sans-serif;
-    font-size: 11px;
-    color: var(--ouro);
-    cursor: pointer;
-    padding: 0;
-  }
-
   /* ── RODAPÉ ── */
   .footer {
     position: relative;
@@ -1153,6 +1132,7 @@ function abrirCropper(file, circular) {
       img.onload = null;
       img.src = "";
       URL.revokeObjectURL(url);
+      destravarScroll();
     }
 
     function aoConfirmar() {
@@ -1178,6 +1158,7 @@ function abrirCropper(file, circular) {
     btnCancelar.addEventListener("click", aoCancelar);
 
     overlay.classList.add("aberto");
+    travarScroll();
     img.src = url;
   });
 }
@@ -1277,6 +1258,34 @@ let modoAdmin = false;
 let servicoGaleriaAberta = null;
 let docExisteNoServidor = true;
 let jaTentouSeed = false;
+
+// ── TRAVAR ROLAGEM DA PÁGINA (com contador, pra suportar overlays aninhados) ──
+let travasScrollAtivas = 0;
+let scrollYAntesDeTravar = 0;
+
+function travarScroll() {
+  if (travasScrollAtivas === 0) {
+    scrollYAntesDeTravar = window.scrollY;
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollYAntesDeTravar}px`;
+    document.body.style.left = "0";
+    document.body.style.right = "0";
+    document.body.style.overflow = "hidden";
+  }
+  travasScrollAtivas++;
+}
+
+function destravarScroll() {
+  travasScrollAtivas = Math.max(0, travasScrollAtivas - 1);
+  if (travasScrollAtivas === 0) {
+    document.body.style.position = "";
+    document.body.style.top = "";
+    document.body.style.left = "";
+    document.body.style.right = "";
+    document.body.style.overflow = "";
+    window.scrollTo(0, scrollYAntesDeTravar);
+  }
+}
 
 // ── SERVIÇOS (portfólio) ──
 function getServicosPadrao() {
@@ -1485,14 +1494,12 @@ async function fazerLoginGoogle() {
 function abrirMiniModal(innerHtml) {
   document.getElementById("miniModalBox").innerHTML = innerHtml;
   document.getElementById("miniModalOverlay").classList.add("aberto");
-  document.body.style.overflow = "hidden";
+  travarScroll();
 }
 function fecharMiniModal() {
   document.getElementById("miniModalOverlay").classList.remove("aberto");
   document.getElementById("miniModalBox").innerHTML = "";
-  if (!document.getElementById("modalGaleria").classList.contains("aberto")) {
-    document.body.style.overflow = "";
-  }
+  destravarScroll();
 }
 document.getElementById("miniModalOverlay").addEventListener("click", e => {
   if (e.target === e.currentTarget) fecharMiniModal();
@@ -1541,9 +1548,7 @@ function renderGrid() {
       <div class="pcard-dots-wrap">
         <button class="pcard-dots-btn" aria-label="Opções do serviço" title="Opções">${svgDotsBranco}</button>
         <div class="dots-menu">
-          <button data-acao="renomear">Editar nome</button>
-          <button data-acao="duracao">Editar duração</button>
-          <button data-acao="descricao">Editar descrição</button>
+          <button data-acao="editar">Editar</button>
           <button data-acao="excluir" class="perigo">Excluir serviço</button>
         </div>
       </div>` : '';
@@ -1576,22 +1581,10 @@ function renderGrid() {
         if (!jaAberto) dotsMenu.classList.add("aberto");
       });
 
-      card.querySelector('[data-acao="renomear"]').addEventListener("click", e => {
+      card.querySelector('[data-acao="editar"]').addEventListener("click", e => {
         e.stopPropagation();
         dotsMenu.classList.remove("aberto");
-        iniciarEdicaoNomeCard(card, serv);
-      });
-
-      card.querySelector('[data-acao="duracao"]').addEventListener("click", e => {
-        e.stopPropagation();
-        dotsMenu.classList.remove("aberto");
-        abrirModalEditarDuracao(serv);
-      });
-
-      card.querySelector('[data-acao="descricao"]').addEventListener("click", e => {
-        e.stopPropagation();
-        dotsMenu.classList.remove("aberto");
-        abrirModalEditarDescricao(serv);
+        abrirModalEditarServico(serv);
       });
 
       card.querySelector('[data-acao="excluir"]').addEventListener("click", async e => {
@@ -1617,67 +1610,43 @@ function renderGrid() {
   });
 }
 
-function iniciarEdicaoNomeCard(card, serv) {
-  const body = card.querySelector(".pcard-body");
-  body.innerHTML = `
-    <input type="text" class="edit-nome-input" value="${serv.nome.replace(/"/g, '&quot;')}">
-    <div class="edit-nome-acoes">
-      <button class="link-btn salvar-nome">Salvar</button>
-      <button class="link-btn cancelar-nome">Cancelar</button>
-    </div>
+function abrirModalEditarServico(serv) {
+  const html = `
+    <h3>Editar serviço</h3>
+    <div class="field-group"><label>NOME DO SERVIÇO</label><input type="text" id="editServNome" placeholder="Ex: Alongamento em fibra"></div>
+    <div class="field-group"><label>VALOR (R$)</label><input type="text" id="editServValor" placeholder="Ex: 180"></div>
+    <div class="field-group"><label>DURAÇÃO</label><input type="text" id="editServDuracao" placeholder="Ex: 60 min"></div>
+    <div class="field-group"><label>DESCRIÇÃO</label><textarea id="editServDesc" placeholder="Descreva o serviço..."></textarea></div>
+    <div class="erro-msg" id="erroEditarServico">Preencha nome e valor.</div>
+    <button class="btn-salvar" id="btnSalvarEditarServico">SALVAR</button>
+    <button class="btn-fechar-admin" id="btnCancelarEditarServico">Cancelar</button>
   `;
-  body.addEventListener("click", e => e.stopPropagation());
-  const input = body.querySelector(".edit-nome-input");
-  input.focus();
-  input.select();
+  abrirMiniModal(html);
+  document.getElementById("editServNome").value = serv.nome || "";
+  document.getElementById("editServValor").value = serv.preco || "";
+  document.getElementById("editServDuracao").value = serv.duracao || "";
+  document.getElementById("editServDesc").value = serv.desc || "";
 
-  const salvar = async () => {
-    const novoNome = input.value.trim();
-    if (novoNome) {
-      serv.nome = novoNome;
-      await salvarServicos();
+  document.getElementById("btnCancelarEditarServico").addEventListener("click", fecharMiniModal);
+  document.getElementById("btnSalvarEditarServico").addEventListener("click", async () => {
+    const nome = document.getElementById("editServNome").value.trim();
+    const preco = document.getElementById("editServValor").value.trim();
+    const duracao = document.getElementById("editServDuracao").value.trim();
+    const desc = document.getElementById("editServDesc").value.trim();
+    const erro = document.getElementById("erroEditarServico");
+
+    if (!nome || !preco) {
+      erro.style.display = "block";
+      return;
     }
-    renderGrid();
-  };
+    erro.style.display = "none";
 
-  body.querySelector(".salvar-nome").addEventListener("click", e => { e.stopPropagation(); salvar(); });
-  body.querySelector(".cancelar-nome").addEventListener("click", e => { e.stopPropagation(); renderGrid(); });
-  input.addEventListener("keydown", e => {
-    if (e.key === "Enter") salvar();
-    if (e.key === "Escape") renderGrid();
-  });
-}
-
-function abrirModalEditarDuracao(serv) {
-  const html = `
-    <h3>Editar duração</h3>
-    <div class="field-group"><label>DURAÇÃO</label><input type="text" id="editDuracao" value="${(serv.duracao || '').replace(/"/g, '&quot;')}" placeholder="Ex: 60 min"></div>
-    <button class="btn-salvar" id="btnSalvarDuracao">SALVAR</button>
-    <button class="btn-fechar-admin" id="btnCancelarDuracao">Cancelar</button>
-  `;
-  abrirMiniModal(html);
-  document.getElementById("btnCancelarDuracao").addEventListener("click", fecharMiniModal);
-  document.getElementById("btnSalvarDuracao").addEventListener("click", async () => {
-    serv.duracao = document.getElementById("editDuracao").value.trim();
+    serv.nome = nome;
+    serv.preco = preco;
+    serv.duracao = duracao;
+    serv.desc = desc;
     await salvarServicos();
     renderGrid();
-    fecharMiniModal();
-  });
-}
-
-function abrirModalEditarDescricao(serv) {
-  const html = `
-    <h3>Editar descrição</h3>
-    <div class="field-group"><label>DESCRIÇÃO</label><textarea id="editDescricao" placeholder="Descreva o serviço..."></textarea></div>
-    <button class="btn-salvar" id="btnSalvarDescricao">SALVAR</button>
-    <button class="btn-fechar-admin" id="btnCancelarDescricao">Cancelar</button>
-  `;
-  abrirMiniModal(html);
-  document.getElementById("editDescricao").value = serv.desc || "";
-  document.getElementById("btnCancelarDescricao").addEventListener("click", fecharMiniModal);
-  document.getElementById("btnSalvarDescricao").addEventListener("click", async () => {
-    serv.desc = document.getElementById("editDescricao").value.trim();
-    await salvarServicos();
     if (document.getElementById("modalGaleria").classList.contains("aberto")) renderModalGaleria();
     fecharMiniModal();
   });
@@ -1762,7 +1731,7 @@ function abrirGaleria(serv) {
   renderModalGaleria();
   const overlay = document.getElementById("modalGaleria");
   overlay.classList.add("aberto");
-  document.body.style.overflow = "hidden";
+  travarScroll();
 }
 
 function renderModalGaleria() {
@@ -1905,12 +1874,12 @@ document.getElementById("modalAddFotos").addEventListener("change", async () => 
 
 document.getElementById("btnFecharModal").addEventListener("click", () => {
   document.getElementById("modalGaleria").classList.remove("aberto");
-  document.body.style.overflow = "";
+  destravarScroll();
 });
 document.getElementById("modalGaleria").addEventListener("click", e => {
   if (e.target === e.currentTarget) {
     e.currentTarget.classList.remove("aberto");
-    document.body.style.overflow = "";
+    destravarScroll();
   }
 });
 
@@ -1923,7 +1892,7 @@ function abrirLightbox(fotos, idx) {
   lightboxIdx = idx;
   renderLightbox();
   document.getElementById("lightboxOverlay").classList.add("aberto");
-  document.body.style.overflow = "hidden";
+  travarScroll();
 }
 
 function renderLightbox() {
@@ -1940,9 +1909,7 @@ function renderLightbox() {
 function fecharLightbox() {
   document.getElementById("lightboxOverlay").classList.remove("aberto");
   document.getElementById("lightboxImg").src = "";
-  if (!document.getElementById("modalGaleria").classList.contains("aberto")) {
-    document.body.style.overflow = "";
-  }
+  destravarScroll();
 }
 
 document.getElementById("lightboxClose").addEventListener("click", fecharLightbox);
